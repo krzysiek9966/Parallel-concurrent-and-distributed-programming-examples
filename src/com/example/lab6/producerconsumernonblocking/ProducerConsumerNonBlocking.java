@@ -13,6 +13,7 @@ public class ProducerConsumerNonBlocking {
     static Condition bufferNotFull = lock.newCondition();
     static Condition bufferNotEmpty = lock.newCondition();
     public static void main(String[] args) {
+
         class Producer extends Thread {
             private String name;
             private ArrayList<String> localItems;
@@ -56,35 +57,36 @@ public class ProducerConsumerNonBlocking {
                 }
             }
         }
+
         class Consumer extends Thread {
             private String name;
+            private LinkedList<String> localItems;
             public Consumer(String name) {
                 this.name = name;
+                this.localItems = new LinkedList<String>();
+            }
+            void consumeElem() { String elem = localItems.pollFirst().toUpperCase(); }
+            void consume() {
+                int size = localItems.size();
+                while(!localItems.isEmpty()) consumeElem();
+                System.out.println("Consumer " + name + " consumes " + size + " elems");
             }
             @Override
             public void run() {
                 while (true) {
-                    lock.lock();
-                    if (buffer.size() == 0) {
-                        System.out.println("Consumer " + name + " is waiting, empty buffer");
-                        try {
-                            bufferNotEmpty.await();
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
+                    boolean gained = lock.tryLock();
+                    if(gained) {
+                        if (buffer.size() == 0) {
+                            System.out.println("Consumer " + name + " is waiting, empty buffer");
+                            try { bufferNotEmpty.await(); }
+                            catch (InterruptedException e) { e.printStackTrace(); }
+                        } else {
+                            while (localItems.size() < 10 && !buffer.isEmpty()) localItems.add(buffer.pollFirst());
+                            bufferNotFull.signal();
                         }
-                    } else {
-                        String elem = buffer.getFirst();
-                        System.out.println("Consumer" + name + " consumes: " + elem + " and process it to: "
-                                + elem.toUpperCase());
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                        buffer.removeFirst();
-                        bufferNotFull.signal();
+                        lock.unlock();
                     }
-                    lock.unlock();
+                    if(!localItems.isEmpty()) consume();
                 }
             }
         }
