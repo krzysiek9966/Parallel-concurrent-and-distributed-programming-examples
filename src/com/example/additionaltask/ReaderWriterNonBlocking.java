@@ -7,9 +7,11 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class ReaderWriterNonBlocking {
 
-    public static void main(String[] args) {
+    public static final int MAX_READER = 15;
+
+    public static void main(String[] args) throws InterruptedException {
         ReentrantLock writing = new ReentrantLock(true);
-        Semaphore reading = new Semaphore(15 + 5);
+        Semaphore reading = new Semaphore(MAX_READER);
         Map<String, Idea> ideas = new HashMap<>();
 
         File tempFile = new File("src/temp.txt");
@@ -19,19 +21,13 @@ public class ReaderWriterNonBlocking {
         copyFile(pattern.getPath(), tempFile.getPath());  // pattern.txt -> temp.txt
 
 
-//        List<String> tempLines = readFile(tempFile);
-//        int[] lengthLines = new int[tempLines.size()];
-//        for (int i = 0; i<lengthLines.length;i++) {
-//            lengthLines[i] = tempLines.get(i).split(" ").length;
-//        }
-
-
         class Reader extends Thread {
             String name;
             List<String> contentLines;
 
             public Reader(String name) {
                 this.name = name;
+//                System.out.println("Reader " + this.name + " was started");
             }
 
             @Override
@@ -39,17 +35,19 @@ public class ReaderWriterNonBlocking {
                 boolean printOnce = true;
                 while (writing.isLocked()) {
                     if (printOnce) {
-                        System.out.println("Some writer is writing. I have to wait.");
+                        System.out.println("Reader " + this.name + ": some writer is writing. I have to wait.");
                         printOnce = false;
                     }
                 }
                 try {
                     reading.acquire();
+                    System.out.println("Reader " + this.name + " is reading");
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
                 contentLines = readFile(tempFile);
                 reading.release();
+                System.out.println("Reader " + this.name + " has finished reading");
 
                 TreeMap<String, Integer> wordMap = wordCounter(contentLines);
                 printCountResult(name, wordMap);
@@ -86,12 +84,20 @@ public class ReaderWriterNonBlocking {
                         ideas.put(name, idea);
                         haveIdea = true;
                         System.out.print("\u001B[34m");
-                        System.out.println("Writer " + this.name + " have idea!");
+                        System.out.println("> Writer " + this.name + " have idea!");
                         System.out.print("\u001B[0m");
                     }
                 }
 
+                boolean printOnce = true;
+                while (reading.availablePermits() < MAX_READER) {
+                    if (printOnce) {
+                        System.out.println("> Writer " + this.name + ": some reader is reading now, i have to wait");
+                        printOnce = false;
+                    }
+                }
                 writing.lock();
+                System.out.println("> Writer " + this.name + ": lock!");
                 List<String> contentLines = readFile(tempFile);
 
                 String[] words = contentLines.get(idea.getNumberLine()).split(" ");
@@ -112,9 +118,10 @@ public class ReaderWriterNonBlocking {
                 }
                 contentLines.set(idea.getNumberLine(), updateLine);
                 writeFile(contentLines, tempFile);
+                System.out.println("> Writer " + this.name + ": unlock!");
                 writing.unlock();
                 System.out.print("\u001B[31m");
-                System.out.println("Writer " + this.name +
+                System.out.println("> Writer " + this.name +
                         " add '" + idea.getWord() +
                         "' after '" + idea.getBefore() +
                         "' in " + (idea.getNumberLine() + 1) + " line.");
@@ -122,13 +129,31 @@ public class ReaderWriterNonBlocking {
                 System.out.print("\u001B[0m");
             }
         }
-        for (int i = 0; i < 10; i++) {
-            for (int j = 0; j < 10; j++) {
-                new Reader(i+"/"+j).run();
-                new Writer(i+"/"+j).run();
+
+        for (int i = 1; i <= 5; i++) {
+            new Writer(i+"").start();
+            for (int j = 1; j <= 3; j++) {
+                new Reader(((i*3)-3+j)+"").start();
             }
         }
 
+//        for (int i = 0; i < 2; i++) {
+//            new Writer(i+"//1").start();
+//            new Writer(i+"//2").start();
+//            new Writer(i+"//3").start();
+//            new Reader(i+"//1").start();
+//            new Reader(i+"//2").start();
+//            new Reader(i+"//3").start();
+//            for (int j = 0; j < 1; j++) {
+//                new Reader(i+"/"+j+"/1").start();
+//                new Reader(i+"/"+j+"/2").start();
+//                new Reader(i+"/"+j+"/3").start();
+//                new Writer(i+"/"+j+"/1").start();
+//                new Writer(i+"/"+j+"/2").start();
+//                new Writer(i+"/"+j+"/3").start();
+//            }
+//            Thread.sleep(10000);
+//        }
     }
 
     private static List<String> readFile(File file) {
@@ -156,7 +181,6 @@ public class ReaderWriterNonBlocking {
         } catch (IOException e) {
             e.printStackTrace();
         }
-
     }
 
     private static void copyFile(String sourcePath, String exitPath) {
@@ -222,10 +246,7 @@ public class ReaderWriterNonBlocking {
         return (c >= 'a' && c <= 'z') ||
                 (c >= 'A' && c <= 'Z');
     }
-
-
 }
-
 
 class Idea {
     private int numberLine;
