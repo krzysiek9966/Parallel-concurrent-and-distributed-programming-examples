@@ -6,28 +6,61 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class ReaderWriterNonBlocking {
+    public static final int N_WRITERS = 5;
+    public static final int N_READERS = 15;
 
-    public static final int MAX_READER = 15;
+//    public static final int MAX_READER = N_WRITERS+N_READERS;
+    public static final int MAX_READER = N_READERS;
 
     public static void main(String[] args) throws InterruptedException {
         ReentrantLock writing = new ReentrantLock(true);
         Semaphore reading = new Semaphore(MAX_READER);
         Map<String, Idea> ideas = new HashMap<>();
 
+        File pattern = new File("src/pattern.txt");
         File tempFile = new File("src/temp.txt");
+        copyFile(pattern.getPath(), tempFile.getPath());  // pattern.txt -> temp.txt
         File wordsFile = new File("src/words.txt");
         List<String> popularWords = readFile(wordsFile);
-        File pattern = new File("src/pattern.txt");
-        copyFile(pattern.getPath(), tempFile.getPath());  // pattern.txt -> temp.txt
 
 
         class Reader extends Thread {
-            String name;
-            List<String> contentLines;
+            private String name;
+            private List<String> contentLines;
+            private TreeMap<String, Integer> wordMap = new TreeMap<>();
 
             public Reader(String name) {
                 this.name = name;
-//                System.out.println("Reader " + this.name + " was started");
+            }
+
+            private void countWords() {
+                for (String line : this.contentLines) {
+                    for (String word : line.split(" ")) {
+                        word = word.toLowerCase();
+
+                        if (!isLetter(word.charAt(word.length() - 1))) {
+                            word = word.substring(0, word.length() - 1);
+                        }
+                        if (!this.wordMap.containsKey(word)) {
+                            this.wordMap.put(word, 1);
+                        } else {
+                            int value = this.wordMap.get(word) + 1;
+                            this.wordMap.put(word, value);
+                        }
+                    }
+                }
+            }
+
+            private void printCountResult() {
+                String result = "Reader " + this.name + " - counting result:\n";
+                for (Map.Entry<String, Integer> entry : this.wordMap.entrySet()) {
+                    String word = entry.getKey();
+                    Integer number = entry.getValue();
+                    result = result + "     " + word + " " + number + "\n";
+                }
+                System.out.print("\u001B[32m");
+                System.out.println(result);
+                System.out.print("\u001B[0m");
             }
 
             @Override
@@ -39,18 +72,20 @@ public class ReaderWriterNonBlocking {
                         printOnce = false;
                     }
                 }
+
                 try {
                     reading.acquire();
-                    System.out.println("Reader " + this.name + " is reading");
+                    System.out.println("Reader " + this.name + " is reading.");
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
-                contentLines = readFile(tempFile);
-                reading.release();
-                System.out.println("Reader " + this.name + " has finished reading");
 
-                TreeMap<String, Integer> wordMap = wordCounter(contentLines);
-                printCountResult(name, wordMap);
+                this.contentLines = readFile(tempFile);
+                System.out.println("Reader " + this.name + " has finished reading.");
+                reading.release();
+
+                countWords();
+                printCountResult();
             }
         }
 
@@ -62,45 +97,18 @@ public class ReaderWriterNonBlocking {
                 this.name = name;
             }
 
-            @Override
-            public void run() {
-                boolean haveIdea = false;
-                while (!haveIdea) {
-                    try {
-                        reading.acquire();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                    List<String> contentLines = readFile(tempFile);
-                    reading.release();
+            private void createIdea(List<String> contentLines) {
+                Random random = new Random();
+                int numberLine = random.nextInt(contentLines.size());
+                this.idea.setNumberLine(numberLine);
+                String[] words = contentLines.get(numberLine).split(" ");
+                this.idea.setBefore(words[random.nextInt(words.length)]);
+                this.idea.setWord(popularWords.get(random.nextInt(popularWords.size())));
+            }
 
-                    Random random = new Random();
-                    int numberLine = random.nextInt(contentLines.size());
-                    idea.setNumberLine(numberLine);
-                    String[] words = contentLines.get(numberLine).split(" ");
-                    idea.setBefore(words[random.nextInt(words.length)]);
-                    idea.setWord(popularWords.get(random.nextInt(popularWords.size())));
-                    if (!ideas.containsKey(idea)) {
-                        ideas.put(name, idea);
-                        haveIdea = true;
-                        System.out.print("\u001B[34m");
-                        System.out.println("> Writer " + this.name + " have idea!");
-                        System.out.print("\u001B[0m");
-                    }
-                }
-
-                boolean printOnce = true;
-                while (reading.availablePermits() < MAX_READER) {
-                    if (printOnce) {
-                        System.out.println("> Writer " + this.name + ": some reader is reading now, i have to wait");
-                        printOnce = false;
-                    }
-                }
-                writing.lock();
-                System.out.println("> Writer " + this.name + ": lock!");
-                List<String> contentLines = readFile(tempFile);
-
+            private String appendIdea(List<String> contentLines) {
                 String[] words = contentLines.get(idea.getNumberLine()).split(" ");
+
                 String updateLine = "";
                 for (int i = 0; i < words.length; i++) {
                     if (words[i].equals(idea.getBefore())) {
@@ -116,44 +124,71 @@ public class ReaderWriterNonBlocking {
                     updateLine = updateLine + words[i];
                     if (i < words.length - 1) updateLine += " ";
                 }
-                contentLines.set(idea.getNumberLine(), updateLine);
-                writeFile(contentLines, tempFile);
-                System.out.println("> Writer " + this.name + ": unlock!");
-                writing.unlock();
+                return updateLine;
+            }
+
+            private void printResult() {
                 System.out.print("\u001B[31m");
                 System.out.println("> Writer " + this.name +
-                        " add '" + idea.getWord() +
-                        "' after '" + idea.getBefore() +
-                        "' in " + (idea.getNumberLine() + 1) + " line.");
-                ideas.put(name, null);
+                        " add '" + this.idea.getWord() +
+                        "' after '" + this.idea.getBefore() +
+                        "' in " + (this.idea.getNumberLine() + 1) + " line.");
                 System.out.print("\u001B[0m");
             }
-        }
 
-        for (int i = 1; i <= 5; i++) {
-            new Writer(i+"").start();
-            for (int j = 1; j <= 3; j++) {
-                new Reader(((i*3)-3+j)+"").start();
+            @Override
+            public void run() {
+                boolean haveIdea = false;
+                while (!haveIdea) {
+//                    try {
+//                        reading.acquire();
+//                    } catch (InterruptedException e) {
+//                        e.printStackTrace();
+//                    }
+                    List<String> contentLines = readFile(tempFile);
+//                    reading.release();
+
+                    createIdea(contentLines);
+                    if (!ideas.containsKey(this.idea) && this.idea.getWord() != null) {
+                        ideas.put(this.name, this.idea);
+                        haveIdea = true;
+                        System.out.print("\u001B[34m");
+                        System.out.println("> Writer " + this.name + " have idea!");
+                        System.out.print("\u001B[0m");
+                    }
+                }
+
+                boolean printOnce = true;
+                while (reading.availablePermits() < MAX_READER) {
+                    if (printOnce) {
+                        System.out.println("> Writer " + this.name + ": someone is reading now, I have to wait");
+                        printOnce = false;
+                    }
+                }
+
+                writing.lock();
+                System.out.println("> Writer " + this.name + ": lock!");
+
+                List<String> contentLines = readFile(tempFile);
+                String updateLine = appendIdea(contentLines);
+                contentLines.set(idea.getNumberLine(), updateLine);
+                writeFile(contentLines, tempFile);
+
+                System.out.println("> Writer " + this.name + ": unlock!");
+                writing.unlock();
+
+                printResult();
+                ideas.put(this.name, null);
+
             }
         }
 
-//        for (int i = 0; i < 2; i++) {
-//            new Writer(i+"//1").start();
-//            new Writer(i+"//2").start();
-//            new Writer(i+"//3").start();
-//            new Reader(i+"//1").start();
-//            new Reader(i+"//2").start();
-//            new Reader(i+"//3").start();
-//            for (int j = 0; j < 1; j++) {
-//                new Reader(i+"/"+j+"/1").start();
-//                new Reader(i+"/"+j+"/2").start();
-//                new Reader(i+"/"+j+"/3").start();
-//                new Writer(i+"/"+j+"/1").start();
-//                new Writer(i+"/"+j+"/2").start();
-//                new Writer(i+"/"+j+"/3").start();
-//            }
-//            Thread.sleep(10000);
-//        }
+        for (int i = 0; i < N_WRITERS; i++) {
+            new Writer(i+"").start();
+        }
+        for (int i = 0; i < N_READERS; i++) {
+            new Reader(i+"").start();
+        }
     }
 
     private static List<String> readFile(File file) {
@@ -196,50 +231,17 @@ public class ReaderWriterNonBlocking {
 
             byte[] buffer = new byte[1024];
             int length;
-            //copy the file content in bytes
             while ((length = inStream.read(buffer)) > 0) {
                 outStream.write(buffer, 0, length);
             }
             inStream.close();
             outStream.close();
 
-            System.out.println("Plik zostal skopiowany!");
+            System.out.println("Copy was successful!");
 
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    private static TreeMap<String, Integer> wordCounter(List<String> lines) {
-        TreeMap<String, Integer> wordMap = new TreeMap<String, Integer>();
-        for (String line : lines) {
-            for (String word : line.split(" ")) {
-                word = word.toLowerCase();
-
-                if (!isLetter(word.charAt(word.length() - 1))) {
-                    word = word.substring(0, word.length() - 1);
-                }
-                if (!wordMap.containsKey(word)) {
-                    wordMap.put(word, 1);
-                } else {
-                    int value = wordMap.get(word) + 1;
-                    wordMap.put(word, value);
-                }
-            }
-        }
-        return wordMap;
-    }
-
-    private static void printCountResult(String name, TreeMap<String, Integer> wordMap) {
-        String result = "Reader " + name + " - counting result:\n";
-        for (Map.Entry<String, Integer> entry : wordMap.entrySet()) {
-            String word = entry.getKey();
-            Integer number = entry.getValue();
-            result = result + "     " + word + " " + number + "\n";
-        }
-        System.out.print("\u001B[32m");
-        System.out.println(result);
-        System.out.print("\u001B[0m");
     }
 
     private static boolean isLetter(char c) {
