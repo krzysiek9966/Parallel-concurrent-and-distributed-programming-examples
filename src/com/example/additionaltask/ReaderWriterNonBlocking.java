@@ -6,16 +6,19 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class ReaderWriterNonBlocking {
+
+    public static final int N_CHANGES = 50;
     public static final int N_WRITERS = 5;
     public static final int N_READERS = 15;
 
-//    public static final int MAX_READER = N_WRITERS+N_READERS;
-    public static final int MAX_READER = N_READERS;
+    public static final int MAX_READER = N_WRITERS + N_READERS;
 
     public static void main(String[] args) throws InterruptedException {
         ReentrantLock writing = new ReentrantLock(true);
         Semaphore reading = new Semaphore(MAX_READER);
         Map<String, Idea> ideas = new HashMap<>();
+        final Integer[] nChanges = {0};
+
 
         File pattern = new File("src/pattern.txt");
         File tempFile = new File("src/temp.txt");
@@ -65,32 +68,40 @@ public class ReaderWriterNonBlocking {
 
             @Override
             public void run() {
-                boolean printOnce = true;
-                while (writing.isLocked()) {
-                    if (printOnce) {
-                        System.out.println("Reader " + this.name + ": some writer is writing. I have to wait.");
-                        printOnce = false;
+                while (nChanges[0] < N_CHANGES) {
+                    boolean printOnce = true;
+                    while (writing.isLocked()) {
+                        if (printOnce) {
+                            System.out.println("Reader " + this.name + ": some writer is writing. I have to wait.");
+                            printOnce = false;
+                        }
                     }
+
+                    try {
+                        reading.acquire();
+                        System.out.println("Reader " + this.name + " is reading.");
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+
+                    this.contentLines = readFile(tempFile);
+                    int nChange = nChanges[0];
+                    System.out.println("Reader " + this.name + " has finished reading.");
+                    reading.release();
+
+                    countWords();
+                    printCountResult();
+                    wordMap.clear();
+
+                    while (nChange == nChanges[0] && nChanges[0] < N_CHANGES) System.out.print("");
                 }
-
-                try {
-                    reading.acquire();
-                    System.out.println("Reader " + this.name + " is reading.");
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-
-                this.contentLines = readFile(tempFile);
-                System.out.println("Reader " + this.name + " has finished reading.");
-                reading.release();
-
-                countWords();
-                printCountResult();
+                System.out.println("** Reader " + this.name + " finished work.");
             }
         }
 
         class Writer extends Thread {
             String name;
+            List<String> contentLines = new ArrayList<>();
             Idea idea = new Idea();
 
             public Writer(String name) {
@@ -102,7 +113,7 @@ public class ReaderWriterNonBlocking {
                 int numberLine = random.nextInt(contentLines.size());
                 this.idea.setNumberLine(numberLine);
                 String[] words = contentLines.get(numberLine).split(" ");
-                this.idea.setBefore(words[random.nextInt(words.length)]);
+                this.idea.setBefore(normalize(words[random.nextInt(words.length)]));
                 this.idea.setWord(popularWords.get(random.nextInt(popularWords.size())));
             }
 
@@ -110,16 +121,17 @@ public class ReaderWriterNonBlocking {
                 String[] words = contentLines.get(idea.getNumberLine()).split(" ");
 
                 String updateLine = "";
+                boolean added = false;
                 for (int i = 0; i < words.length; i++) {
-                    if (words[i].equals(idea.getBefore())) {
+                    if (normalize(words[i]).equals(idea.getBefore()) && !added) {
                         String word = words[i];
-                        if (word.charAt(word.length() - 1) == '.' ||
-                                word.charAt(word.length() - 1) == '!' ||
-                                word.charAt(word.length() - 1) == '?') {
-                            words[i] = word.substring(0, word.length() - 1) + " " + idea.getWord() + '.';
+                        char lastChar = word.charAt(word.length() - 1);
+                        if (lastChar == '.' || lastChar == '!' || lastChar == '?') {
+                            words[i] = word.substring(0, word.length() - 1) + " " + idea.getWord() + lastChar;
                         } else {
                             words[i] = words[i] + " " + idea.getWord();
                         }
+                        added = true;
                     }
                     updateLine = updateLine + words[i];
                     if (i < words.length - 1) updateLine += " ";
@@ -138,56 +150,53 @@ public class ReaderWriterNonBlocking {
 
             @Override
             public void run() {
-                boolean haveIdea = false;
-                while (!haveIdea) {
-//                    try {
-//                        reading.acquire();
-//                    } catch (InterruptedException e) {
-//                        e.printStackTrace();
-//                    }
-                    List<String> contentLines = readFile(tempFile);
-//                    reading.release();
+                while (nChanges[0] < N_CHANGES) {
+                    boolean haveIdea = false;
+                    while (!haveIdea) {
+                        while (this.contentLines.isEmpty()) this.contentLines = readFile(tempFile);
 
-                    createIdea(contentLines);
-                    if (!ideas.containsKey(this.idea) && this.idea.getWord() != null) {
-                        ideas.put(this.name, this.idea);
-                        haveIdea = true;
-                        System.out.print("\u001B[34m");
-                        System.out.println("> Writer " + this.name + " have idea!");
-                        System.out.print("\u001B[0m");
+                        createIdea(contentLines);
+                        if (!ideas.containsKey(this.idea) && this.idea.getWord() != null) {
+                            ideas.put(this.name, this.idea);
+                            haveIdea = true;
+                            System.out.print("\u001B[34m");
+                            System.out.println("> Writer " + this.name + " have idea!");
+                            System.out.print("\u001B[0m");
+                        }
                     }
-                }
 
-                boolean printOnce = true;
-                while (reading.availablePermits() < MAX_READER) {
-                    if (printOnce) {
-                        System.out.println("> Writer " + this.name + ": someone is reading now, I have to wait");
-                        printOnce = false;
+                    boolean printOnce = true;
+                    while (reading.availablePermits() < MAX_READER) {
+                        if (printOnce) {
+                            System.out.println("> Writer " + this.name + ": some reader is reading now, I have to wait");
+                            printOnce = false;
+                        }
                     }
+
+                    writing.lock();
+                    System.out.println("> Writer " + this.name + ": lock!");
+                    if (nChanges[0] < N_CHANGES) {
+                        List<String> contentLines = readFile(tempFile);
+                        String updateLine = appendIdea(contentLines);
+                        contentLines.set(idea.getNumberLine(), updateLine);
+                        writeFile(contentLines, tempFile);
+                        printResult();
+                        nChanges[0]++;
+                    }
+                    System.out.println("> Writer " + this.name + ": unlock!");
+                    writing.unlock();
+                    ideas.put(this.name, null);
+                    this.contentLines.clear();
                 }
-
-                writing.lock();
-                System.out.println("> Writer " + this.name + ": lock!");
-
-                List<String> contentLines = readFile(tempFile);
-                String updateLine = appendIdea(contentLines);
-                contentLines.set(idea.getNumberLine(), updateLine);
-                writeFile(contentLines, tempFile);
-
-                System.out.println("> Writer " + this.name + ": unlock!");
-                writing.unlock();
-
-                printResult();
-                ideas.put(this.name, null);
-
+                System.out.println("** Writer " + this.name + " finished work.");
             }
         }
 
         for (int i = 0; i < N_WRITERS; i++) {
-            new Writer(i+"").start();
+            new Writer(i + "").start();
         }
         for (int i = 0; i < N_READERS; i++) {
-            new Reader(i+"").start();
+            new Reader(i + "").start();
         }
     }
 
@@ -203,7 +212,7 @@ public class ReaderWriterNonBlocking {
         return lines;
     }
 
-    private static void writeFile(List<String> contentLines, File file) {
+    private static boolean writeFile(List<String> contentLines, File file) {
         try {
             FileWriter fileWriter = new FileWriter(file);
             for (String line : contentLines) {
@@ -213,8 +222,10 @@ public class ReaderWriterNonBlocking {
                 }
             }
             fileWriter.close();
+            return true;
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
         }
     }
 
@@ -242,6 +253,14 @@ public class ReaderWriterNonBlocking {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private static String normalize(String word) {
+        char lastChar = word.charAt(word.length() - 1);
+        if (!isLetter(lastChar)) {
+            word = word.substring(0, word.length() - 1);
+        }
+        return word;
     }
 
     private static boolean isLetter(char c) {
@@ -288,4 +307,3 @@ class Idea {
         this.word = word;
     }
 }
-
