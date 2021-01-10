@@ -12,6 +12,9 @@ import java.net.Socket;
 public class WorldServer {
     public static void main(String[] args) throws IOException {
         ServerSocket serverSocket = new ServerSocket(6000);
+//        ServerSocket serverSocket = new ServerSocket(6000, 1, Inet4Address.getLocalHost());
+
+
         System.out.println("Started server at: " + serverSocket.getLocalSocketAddress());
         Socket connection = serverSocket.accept();
         BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream()));

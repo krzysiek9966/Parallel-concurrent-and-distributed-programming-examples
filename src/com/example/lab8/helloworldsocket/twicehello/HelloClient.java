@@ -17,6 +17,8 @@ public class HelloClient {
 
         output.writeBytes("Hello, " + "\n");
         output.flush();
+        output.writeBytes("Hello, " + "\n");
+        output.flush();
 
         String response = socketBufferedReader.readLine();
         System.out.println("Sever response: " + response);

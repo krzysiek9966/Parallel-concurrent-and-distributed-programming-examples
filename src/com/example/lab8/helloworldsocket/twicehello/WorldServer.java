@@ -12,9 +12,12 @@ public class WorldServer {
         ServerSocket serverSocket = new ServerSocket(6000);
         System.out.println("Started server at: " + serverSocket.getLocalSocketAddress());
         Socket connection = serverSocket.accept();
+
         BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        String hello = br.readLine();
-        System.out.println("Client sends: " + hello);
+        for (int i=0;i<2;i++) {
+            String hello = br.readLine();
+            System.out.println("Client sends: " + hello);
+        }
 
         DataOutputStream dataOutputStream = new DataOutputStream(connection.getOutputStream());
         dataOutputStream.writeBytes(" world!\n");
