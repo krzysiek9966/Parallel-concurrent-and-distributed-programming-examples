@@ -135,12 +135,14 @@ public class ServerLoop {
                         try {
                             String fileName = br.readLine();
                             List<String> lines = readFile(fileName);
-                            dataOutputStream.writeBytes(" " + fileName + " content:" + System.lineSeparator());
-                            dataOutputStream.flush();
+
+                            String content = " ";
                             for (String line : lines) {
-                                dataOutputStream.writeBytes(" " + line + System.lineSeparator());
-                                dataOutputStream.flush();
+                                content = content + line + " ";
                             }
+
+                            dataOutputStream.writeBytes(content + System.lineSeparator());
+                            dataOutputStream.flush();
                         } catch (SocketException e) {
                             System.out.println("error");
                         }
