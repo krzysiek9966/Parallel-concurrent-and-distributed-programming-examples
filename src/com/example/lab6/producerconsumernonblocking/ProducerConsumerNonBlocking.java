@@ -52,6 +52,7 @@ public class ProducerConsumerNonBlocking {
                             bufferNotEmpty.signal();
                         }
                         lock.unlock();
+                        System.out.println("Producer " + name + " was produced new products");
                     }
                     produce();
                 }

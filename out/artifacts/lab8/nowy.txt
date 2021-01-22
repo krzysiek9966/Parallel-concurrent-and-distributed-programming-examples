@@ -1,0 +1,1 @@
+This is a content of a file, which will be send to a server!
